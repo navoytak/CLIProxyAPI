@@ -35,6 +35,12 @@ func (failingClaudeInputCodec) Decode([]uint) (string, error) {
 	return "", errors.New("decode failed")
 }
 
+func (failingClaudeInputCodec) ErrorMode() tokenizer.ErrorMode {
+	return tokenizer.ErrorModeNone
+}
+
+func (failingClaudeInputCodec) SetErrorMode(tokenizer.ErrorMode) {}
+
 func TestCollectClaudeInputTokenSegments(t *testing.T) {
 	payload := []byte(`{
         "model":"claude-test",

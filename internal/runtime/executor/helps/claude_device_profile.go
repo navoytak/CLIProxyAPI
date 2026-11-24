@@ -602,6 +602,34 @@ func ApplyClaudeLegacyDeviceHeaders(r *http.Request, ginHeaders http.Header, cfg
 		return
 	}
 	profile := defaultClaudeDeviceProfile(cfg)
+	var hd config.ClaudeHeaderDefaults
+	if cfg != nil {
+		hd = cfg.ClaudeHeaderDefaults
+	}
+	hasConfiguredSoftwareProfile := strings.TrimSpace(hd.UserAgent) != "" ||
+		strings.TrimSpace(hd.PackageVersion) != "" ||
+		strings.TrimSpace(hd.RuntimeVersion) != ""
+	// Legacy mode uses the host platform when no explicit platform profile applies.
+	legacyPlatform := func(name, configured, fallback, defaultValue string) string {
+		configured = strings.TrimSpace(configured)
+		if confirmedClaudeCode {
+			if configured != "" {
+				return configured
+			}
+			if !hasConfiguredSoftwareProfile {
+				if incoming := strings.TrimSpace(ginHeaders.Get(name)); incoming != "" {
+					return incoming
+				}
+			}
+			return fallback
+		}
+		if configured != "" && configured != defaultValue {
+			return configured
+		}
+		return fallback
+	}
+	osName := legacyPlatform("X-Stainless-Os", hd.OS, mapStainlessOS(), defaultClaudeFingerprintOS)
+	archName := legacyPlatform("X-Stainless-Arch", hd.Arch, mapStainlessArch(), defaultClaudeFingerprintArch)
 	miscEnsure := func(name, fallback string, valid func(string) bool) {
 		if current := strings.TrimSpace(r.Header.Get(name)); current != "" && (valid == nil || valid(current)) {
 			return
@@ -616,8 +644,8 @@ func ApplyClaudeLegacyDeviceHeaders(r *http.Request, ginHeaders http.Header, cfg
 	if confirmedClaudeCode {
 		miscEnsure("X-Stainless-Runtime-Version", profile.RuntimeVersion, func(value string) bool { return value == profile.RuntimeVersion })
 		miscEnsure("X-Stainless-Package-Version", profile.PackageVersion, func(value string) bool { return value == profile.PackageVersion })
-		miscEnsure("X-Stainless-Os", mapStainlessOS(), nil)
-		miscEnsure("X-Stainless-Arch", mapStainlessArch(), nil)
+		r.Header.Set("X-Stainless-Os", osName)
+		r.Header.Set("X-Stainless-Arch", archName)
 		if clientUA := strings.TrimSpace(ginHeaders.Get("User-Agent")); plausibleClaudeCodeUserAgent(clientUA, cfg) {
 			r.Header.Set("User-Agent", clientUA)
 			return
@@ -628,7 +656,7 @@ func ApplyClaudeLegacyDeviceHeaders(r *http.Request, ginHeaders http.Header, cfg
 	// into the upstream Claude Code SDK fingerprint.
 	r.Header.Set("X-Stainless-Runtime-Version", profile.RuntimeVersion)
 	r.Header.Set("X-Stainless-Package-Version", profile.PackageVersion)
-	r.Header.Set("X-Stainless-Os", profile.OS)
-	r.Header.Set("X-Stainless-Arch", profile.Arch)
+	r.Header.Set("X-Stainless-Os", osName)
+	r.Header.Set("X-Stainless-Arch", archName)
 	r.Header.Set("User-Agent", profile.UserAgent)
 }
